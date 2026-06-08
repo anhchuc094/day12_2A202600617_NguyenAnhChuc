@@ -21,8 +21,8 @@ services:
   # ──────────────────────────────────────
   agent:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..             # build từ project root (Dockerfile dùng path từ root)
+      dockerfile: 02-docker/production/Dockerfile
       target: runtime          # chỉ build stage "runtime", không build "builder"
     environment:
       - ENVIRONMENT=staging
@@ -74,10 +74,12 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      # curl không có trong image qdrant → dùng bash /dev/tcp thay thế
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
       interval: 15s
       timeout: 5s
       retries: 3
+      start_period: 10s
     networks:
       - internal
 
