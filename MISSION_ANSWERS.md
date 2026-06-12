@@ -128,6 +128,7 @@ Các service liên lạc bằng service name trên Docker network, ví dụ `red
 
 - Platform: **Railway**
 - Public URL: https://responsible-courage-production-b18b.up.railway.app
+- Public demo UI: mở URL trên và bấm `Thử demo`, không cần API key.
 - Health: https://responsible-courage-production-b18b.up.railway.app/health
 - Readiness: https://responsible-courage-production-b18b.up.railway.app/ready
 - Deployment environment: `production`
@@ -161,6 +162,8 @@ Các biến production đã cấu hình gồm `ENVIRONMENT`, `AGENT_API_KEY`, `L
 
 `cloudbuild.yaml` mô tả pipeline build/push container image. `service.yaml` mô tả Cloud Run service, container image, port, resource, scaling và environment variables. Cloud Run phù hợp production hơn khi cần managed autoscaling, nhưng cấu hình và tài khoản GCP phức tạp hơn Railway.
 
+![Dashboard](06-lab-complete/Dashboard.png)
+
 ### Checkpoint 3
 
 - Đã deploy thành công lên Railway.
@@ -178,6 +181,7 @@ Các biến production đã cấu hình gồm `ENVIRONMENT`, `AGENT_API_KEY`, `L
 - Thiếu hoặc sai key trả `401` trong final project (`develop` demo tách thiếu key `401`, sai key `403`).
 - Rotate key bằng cách đổi `AGENT_API_KEY` trên Railway rồi redeploy, không cần sửa source code.
 - Final project dùng `secrets.compare_digest` để so sánh key an toàn hơn phép so sánh chuỗi thông thường.
+- Endpoint production `POST /ask` vẫn bắt buộc API key. Giao diện có endpoint `POST /demo` riêng cho khách thử, giới hạn 5 request/phút theo IP đã băm nên không làm lộ production key.
 
 Kết quả thực tế khi không gửi API key:
 
