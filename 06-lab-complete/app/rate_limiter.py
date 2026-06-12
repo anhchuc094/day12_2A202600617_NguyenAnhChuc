@@ -7,8 +7,13 @@ from app.config import settings
 from app.redis_client import redis_client
 
 
-def check_rate_limit(user_id: str) -> None:
-    key = f"rate:{user_id}"
+def check_rate_limit(
+    user_id: str,
+    limit: int | None = None,
+    namespace: str = "rate",
+) -> None:
+    request_limit = limit or settings.rate_limit_per_minute
+    key = f"{namespace}:{user_id}"
     now_ms = int(time.time() * 1000)
     window_start = now_ms - 60_000
     script = """
@@ -28,12 +33,12 @@ def check_rate_limit(user_id: str) -> None:
         window_start,
         now_ms,
         f"{now_ms}:{uuid.uuid4().hex}",
-        settings.rate_limit_per_minute,
+        request_limit,
     )
 
     if not allowed:
         raise HTTPException(
             status_code=429,
-            detail=f"Rate limit exceeded: {settings.rate_limit_per_minute} requests/minute",
+            detail=f"Rate limit exceeded: {request_limit} requests/minute",
             headers={"Retry-After": "60"},
         )

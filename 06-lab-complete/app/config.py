@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     allowed_origins: str = "*"
 
     rate_limit_per_minute: int = 10
+    demo_rate_limit_per_minute: int = 5
     monthly_budget_usd: float = 10.0
     redis_url: str = "redis://localhost:6379/0"
     history_limit: int = 20
