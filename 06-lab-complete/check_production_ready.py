@@ -1,142 +1,198 @@
-"""
-Production Readiness Checker
-
-Tự động kiểm tra project có đủ điều kiện deploy chưa.
-Chạy: python check_production_ready.py
-
-Output: checklist với ✅ / ❌ cho từng item.
-"""
+"""Static and runtime production-readiness checks for the final lab."""
+import argparse
+import json
 import os
 import sys
-import json
-import subprocess
+import urllib.error
+import urllib.request
+import uuid
 
 
-def check(name: str, passed: bool, detail: str = "") -> dict:
-    icon = "✅" if passed else "❌"
-    print(f"  {icon} {name}" + (f" — {detail}" if detail else ""))
-    return {"name": name, "passed": passed}
+BASE = os.path.dirname(__file__)
 
 
-def run_checks():
-    results = []
-    base = os.path.dirname(__file__)
+def read(path: str) -> str:
+    with open(os.path.join(BASE, path), encoding="utf-8") as file:
+        return file.read()
 
-    print("\n" + "=" * 55)
-    print("  Production Readiness Check — Day 12 Lab")
-    print("=" * 55)
 
-    # ── Files ──────────────────���───────────────────
-    print("\n📁 Required Files")
-    results.append(check("Dockerfile exists",
-                         os.path.exists(os.path.join(base, "Dockerfile"))))
-    results.append(check("docker-compose.yml exists",
-                         os.path.exists(os.path.join(base, "docker-compose.yml"))))
-    results.append(check(".dockerignore exists",
-                         os.path.exists(os.path.join(base, ".dockerignore"))))
-    results.append(check(".env.example exists",
-                         os.path.exists(os.path.join(base, ".env.example"))))
-    results.append(check("requirements.txt exists",
-                         os.path.exists(os.path.join(base, "requirements.txt"))))
-    results.append(check("railway.toml or render.yaml exists",
-                         os.path.exists(os.path.join(base, "railway.toml")) or
-                         os.path.exists(os.path.join(base, "render.yaml"))))
+def report(name: str, passed: bool, detail: str = "") -> bool:
+    icon = "PASS" if passed else "FAIL"
+    suffix = f" - {detail}" if detail else ""
+    print(f"  [{icon}] {name}{suffix}")
+    return passed
 
-    # ── Security ──────────────────────────────────���
-    print("\n🔒 Security")
 
-    # Check .env not tracked
-    env_file = os.path.join(base, ".env")
-    gitignore = os.path.join(base, ".gitignore")
-    root_gitignore = os.path.join(base, "..", ".gitignore")
+def request(
+    base_url: str,
+    path: str,
+    method: str = "GET",
+    api_key: str | None = None,
+    body: dict | None = None,
+) -> tuple[int, dict]:
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        f"{base_url.rstrip('/')}{path}",
+        data=data,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
 
-    env_ignored = False
-    for gi in [gitignore, root_gitignore]:
-        if os.path.exists(gi):
-            content = open(gi).read()
-            if ".env" in content:
-                env_ignored = True
-                break
-    results.append(check(".env in .gitignore",
-                         env_ignored,
-                         "Add .env to .gitignore!" if not env_ignored else ""))
 
-    # Check no hardcoded secrets in code
-    secrets_found = []
-    for f in ["app/main.py", "app/config.py"]:
-        fpath = os.path.join(base, f)
-        if os.path.exists(fpath):
-            content = open(fpath).read()
-            for bad in ["sk-", "password123", "hardcoded"]:
-                if bad in content:
-                    secrets_found.append(f"{f}:{bad}")
-    results.append(check("No hardcoded secrets in code",
-                         len(secrets_found) == 0,
-                         str(secrets_found) if secrets_found else ""))
+def static_checks() -> list[bool]:
+    print("\nStatic checks")
+    results: list[bool] = []
+    required = [
+        "app/__init__.py",
+        "app/main.py",
+        "app/config.py",
+        "app/auth.py",
+        "app/rate_limiter.py",
+        "app/cost_guard.py",
+        "app/redis_client.py",
+        "utils/mock_llm.py",
+        "Dockerfile",
+        "docker-compose.yml",
+        "nginx/nginx.conf",
+        ".env.example",
+        ".dockerignore",
+        "requirements.txt",
+        "railway.toml",
+        "render.yaml",
+    ]
+    for path in required:
+        results.append(report(f"{path} exists", os.path.exists(os.path.join(BASE, path))))
 
-    # ── API Endpoints ────────────────────────────��─
-    print("\n🌐 API Endpoints (code check)")
-    main_py = os.path.join(base, "app", "main.py")
-    if os.path.exists(main_py):
-        content = open(main_py).read()
-        results.append(check("/health endpoint defined",
-                             '"/health"' in content or "'/health'" in content))
-        results.append(check("/ready endpoint defined",
-                             '"/ready"' in content or "'/ready'" in content))
-        results.append(check("Authentication implemented",
-                             "api_key" in content.lower() or "verify_token" in content))
-        results.append(check("Rate limiting implemented",
-                             "rate_limit" in content.lower() or "429" in content))
-        results.append(check("Graceful shutdown (SIGTERM)",
-                             "SIGTERM" in content))
-        results.append(check("Structured logging (JSON)",
-                             "json.dumps" in content or '"event"' in content))
-    else:
-        results.append(check("app/main.py exists", False, "Create app/main.py!"))
+    main = read("app/main.py")
+    config = read("app/config.py")
+    rate = read("app/rate_limiter.py")
+    cost = read("app/cost_guard.py")
+    redis_client = read("app/redis_client.py")
+    dockerfile = read("Dockerfile")
+    compose = read("docker-compose.yml")
+    dockerignore = read(".dockerignore")
 
-    # ── Docker ─────────────────────────────────────
-    print("\n🐳 Docker")
-    dockerfile = os.path.join(base, "Dockerfile")
-    if os.path.exists(dockerfile):
-        content = open(dockerfile).read()
-        results.append(check("Multi-stage build",
-                             "AS builder" in content or "AS runtime" in content))
-        results.append(check("Non-root user",
-                             "useradd" in content or "USER " in content))
-        results.append(check("HEALTHCHECK instruction",
-                             "HEALTHCHECK" in content))
-        results.append(check("Slim base image",
-                             "slim" in content or "alpine" in content))
+    checks = [
+        ("Environment-based config", "BaseSettings" in config and "redis_url" in config),
+        ("Health endpoint", '"/health"' in main),
+        ("Readiness checks Redis", '"/ready"' in main and "ping_redis" in main),
+        ("API-key authentication", "verify_api_key" in main),
+        ("Redis sliding-window rate limit", "ZREMRANGEBYSCORE" in rate),
+        ("Redis monthly cost guard", "INCRBYFLOAT" in cost and "monthly_budget" in cost),
+        ("Conversation history in Redis", "lpush" in redis_client and "lrange" in redis_client),
+        ("Structured JSON logging", "JsonFormatter" in main and "json.dumps" in main),
+        ("SIGTERM/graceful shutdown", "SIGTERM" in main and "lifespan" in main),
+        ("Multi-stage Docker build", "AS builder" in dockerfile and "AS runtime" in dockerfile),
+        ("Non-root container", "USER agent" in dockerfile),
+        ("Docker health check", "HEALTHCHECK" in dockerfile),
+        ("Three agent replicas", "replicas: 3" in compose),
+        ("Redis service", "redis:" in compose and "redis-data" in compose),
+        ("Nginx load balancer", "nginx:" in compose and "nginx/nginx.conf" in compose),
+        ("Secrets excluded from image", ".env" in dockerignore),
+    ]
+    results.extend(report(name, passed) for name, passed in checks)
+    return results
 
-    dockerignore = os.path.join(base, ".dockerignore")
-    if os.path.exists(dockerignore):
-        content = open(dockerignore).read()
-        results.append(check(".dockerignore covers .env",
-                             ".env" in content))
-        results.append(check(".dockerignore covers __pycache__",
-                             "__pycache__" in content))
 
-    # ── Summary ───────────────────────────────────���
-    passed = sum(1 for r in results if r["passed"])
-    total = len(results)
-    pct = round(passed / total * 100)
+def runtime_checks(base_url: str, api_key: str) -> list[bool]:
+    print(f"\nRuntime checks against {base_url}")
+    results: list[bool] = []
 
-    print("\n" + "=" * 55)
-    print(f"  Result: {passed}/{total} checks passed ({pct}%)")
+    status, health = request(base_url, "/health")
+    results.append(report("GET /health returns 200", status == 200, str(health)))
 
-    if pct == 100:
-        print("  🎉 PRODUCTION READY! Deploy nào!")
-    elif pct >= 80:
-        print("  ✅ Almost there! Fix the ❌ items above.")
-    elif pct >= 60:
-        print("  ⚠️  Good progress. Several items need attention.")
-    else:
-        print("  ❌ Not ready. Review the checklist carefully.")
+    status, ready = request(base_url, "/ready")
+    results.append(report("GET /ready returns 200", status == 200, str(ready)))
 
-    print("=" * 55 + "\n")
-    return pct == 100
+    user_id = f"check-{uuid.uuid4().hex[:8]}"
+    body = {"question": "What is deployment?", "user_id": user_id}
+    status, _ = request(base_url, "/ask", method="POST", body=body)
+    results.append(report("POST /ask requires authentication", status == 401))
+
+    status, answer = request(base_url, "/ask", method="POST", api_key=api_key, body=body)
+    results.append(
+        report(
+            "Authenticated POST /ask returns 200",
+            status == 200 and answer.get("user_id") == user_id,
+            str(answer),
+        )
+    )
+
+    statuses = []
+    for index in range(10):
+        status, _ = request(
+            base_url,
+            "/ask",
+            method="POST",
+            api_key=api_key,
+            body={"question": f"rate test {index}", "user_id": user_id},
+        )
+        statuses.append(status)
+    results.append(report("Rate limit returns 429", 429 in statuses, str(statuses)))
+
+    status, metrics = request(base_url, "/metrics", api_key=api_key)
+    results.append(report("Protected metrics returns 200", status == 200, str(metrics)))
+
+    history_user = f"history-{uuid.uuid4().hex[:8]}"
+    history_results = []
+    for question in ("first message", "second message"):
+        status, response = request(
+            base_url,
+            "/ask",
+            method="POST",
+            api_key=api_key,
+            body={"question": question, "user_id": history_user},
+        )
+        history_results.append((status, response))
+    history_passed = (
+        history_results[0][0] == 200
+        and history_results[1][0] == 200
+        and history_results[0][1].get("history_items") == 1
+        and history_results[1][1].get("history_items") == 2
+    )
+    results.append(report("Conversation history persists in Redis", history_passed))
+
+    instance_ids = set()
+    for _ in range(9):
+        status, response = request(base_url, "/health")
+        if status == 200 and response.get("instance_id"):
+            instance_ids.add(response["instance_id"])
+    results.append(
+        report(
+            "Nginx distributes traffic across agent replicas",
+            len(instance_ids) >= 2,
+            str(sorted(instance_ids)),
+        )
+    )
+    return results
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--runtime", action="store_true")
+    parser.add_argument("--url", default="http://localhost")
+    parser.add_argument(
+        "--api-key",
+        default=os.getenv("AGENT_API_KEY", "my-local-secret-key"),
+    )
+    args = parser.parse_args()
+
+    results = static_checks()
+    if args.runtime:
+        results.extend(runtime_checks(args.url, args.api_key))
+
+    passed = sum(results)
+    print(f"\nResult: {passed}/{len(results)} checks passed")
+    return 0 if all(results) else 1
 
 
 if __name__ == "__main__":
-    ready = run_checks()
-    sys.exit(0 if ready else 1)
+    sys.exit(main())

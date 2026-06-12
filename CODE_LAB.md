@@ -107,10 +107,19 @@ python app.py
 
 | Feature | Basic | Advanced | Tại sao quan trọng? |
 |---------|-------|----------|---------------------|
-| Config | Hardcode | Env vars | ... |
-| Health check |  |  | ... |
-| Logging | print() | JSON | ... |
-| Shutdown | Đột ngột | Graceful | ... |
+| Config | Hardcode trực tiếp trong `app.py` | Đọc từ biến môi trường qua `config.py` và `.env` | Có thể đổi cấu hình theo từng môi trường mà không sửa code |
+| Secrets | API key và database URL nằm trong source code | API key nằm trong biến môi trường | Tránh lộ secret khi đẩy code lên GitHub hoặc chia sẻ project |
+| Health check | Không có | Có `/health` | Cloud platform biết ứng dụng còn sống và có cần restart hay không |
+| Readiness check | Không có | Có `/ready`, trả `503` khi chưa sẵn sàng | Load balancer chỉ gửi traffic tới instance đã khởi động xong |
+| Logging | Dùng `print()`, thậm chí in cả API key | Structured JSON logging, không log secret | Dễ tìm kiếm, phân tích log và tích hợp Datadog/Loki |
+| Shutdown | Dừng đột ngột | Có lifespan và xử lý `SIGTERM` | Cho request đang chạy có thời gian hoàn thành trước khi container tắt |
+| Host | Cố định `localhost` | Đọc `HOST`, mặc định `0.0.0.0` | `0.0.0.0` cho phép truy cập ứng dụng từ ngoài container |
+| Port | Cố định `8000` | Đọc biến môi trường `PORT` | Railway, Render và các nền tảng cloud tự cấp port lúc chạy |
+| Reload | Luôn bật `reload=True` | Chỉ bật khi `DEBUG=true` | Tránh process reload và tài nguyên thừa trong production |
+| CORS | Không cấu hình | Origins được cấu hình bằng `ALLOWED_ORIGINS` | Kiểm soát frontend nào được phép gọi API |
+| LLM | Luôn gọi mock LLM | Gọi Groq khi có `GROQ_API_KEY`, nếu thiếu key mới fallback về mock | Dùng provider thật nhưng vẫn có thể chạy lab khi chưa có API key |
+| Error handling | Hầu như không có | Validate input và chuyển lỗi Groq thành HTTP `502` | Client nhận được mã lỗi rõ ràng thay vì ứng dụng crash |
+| Monitoring | Không có | Có `/health`, `/ready`, `/metrics` | Hỗ trợ giám sát uptime, readiness và trạng thái triển khai |
 
 ###  Checkpoint 1
 

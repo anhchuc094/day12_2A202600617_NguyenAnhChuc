@@ -9,6 +9,10 @@ Tất cả config đọc từ environment variables.
 import os
 import logging
 from dataclasses import dataclass, field
+from dotenv import load_dotenv
+
+
+load_dotenv()
 
 
 @dataclass
@@ -24,8 +28,11 @@ class Settings:
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
 
     # LLM (optional — chỉ warn nếu thiếu, không crash)
-    openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "gpt-4o-mini"))
+    llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "groq").lower())
+    groq_api_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""))
+    llm_model: str = field(
+        default_factory=lambda: os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+    )
     max_tokens: int = field(default_factory=lambda: int(os.getenv("MAX_TOKENS", "500")))
 
     # Security
@@ -37,8 +44,10 @@ class Settings:
     def validate(self):
         """Fail fast nếu thiếu config bắt buộc."""
         warnings = []
-        if not self.openai_api_key:
-            warnings.append("OPENAI_API_KEY not set — using mock LLM")
+        if self.llm_provider not in {"groq", "mock"}:
+            raise ValueError("LLM_PROVIDER must be 'groq' or 'mock'")
+        if self.llm_provider == "groq" and not self.groq_api_key:
+            warnings.append("GROQ_API_KEY not set - using mock LLM")
         if not self.api_key and self.environment == "production":
             raise ValueError("AGENT_API_KEY must be set in production!")
         for w in warnings:

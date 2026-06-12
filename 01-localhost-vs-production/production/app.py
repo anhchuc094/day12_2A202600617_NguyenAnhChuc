@@ -20,9 +20,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from groq import APIError
 import uvicorn
 from config import settings
-from utils.mock_llm import ask
+from utils.llm import active_provider, ask
 
 # ✅ Structured JSON logging — dễ parse trong log aggregator (Datadog, Loki...)
 logging.basicConfig(
@@ -52,6 +53,8 @@ async def lifespan(app: FastAPI):
         "version": settings.app_version,
         "env": settings.environment,
         "port": settings.port,
+        "llm_provider": active_provider(),
+        "llm_model": settings.llm_model,
     }))
     # Simulate loading model/connecting DB
     time.sleep(0.1)
@@ -93,6 +96,8 @@ def root():
         "version": settings.app_version,
         "environment": settings.environment,
         "status": "running",
+        "llm_provider": active_provider(),
+        "llm_model": settings.llm_model,
     }
 
 
@@ -111,7 +116,11 @@ async def ask_agent(request: Request):
         "client_ip": request.client.host,
     }))
 
-    response = ask(question)
+    try:
+        response = await ask(question)
+    except APIError as exc:
+        logger.exception("Groq request failed")
+        raise HTTPException(status_code=502, detail="LLM provider request failed") from exc
 
     logger.info(json.dumps({
         "event": "agent_response",
@@ -121,6 +130,7 @@ async def ask_agent(request: Request):
     return {
         "question": question,
         "answer": response,
+        "provider": active_provider(),
         "model": settings.llm_model,
     }
 
